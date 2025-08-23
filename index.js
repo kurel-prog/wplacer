@@ -27,7 +27,7 @@ const saveTemplates = () => {
 };
 
 const app = express();
-app.use(cors({ origin: 'https://wplace.live' }));
+app.use(cors({ origin: '*' }));
 app.use(express.static("public"));
 app.use(express.json({ limit: Infinity }));
 
