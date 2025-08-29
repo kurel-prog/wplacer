@@ -68,6 +68,93 @@ const proxyCount = $("proxyCount");
 const reloadProxiesBtn = $("reloadProxiesBtn");
 const logProxyUsage = $("logProxyUsage");
 
+// --- Password Authentication ---
+const STORAGE_KEY = 'wplacer_password';
+
+const getStoredPassword = () => localStorage.getItem(STORAGE_KEY);
+const savePassword = (password) => localStorage.setItem(STORAGE_KEY, password);
+const clearPassword = () => localStorage.removeItem(STORAGE_KEY);
+
+const promptForPassword = () => {
+    const password = prompt("Enter Password:");
+    if (password) {
+        savePassword(password);
+    }
+    return password;
+};
+
+// Axios Interceptor để tự động thêm password và xử lý lỗi
+axios.interceptors.request.use(
+    config => {
+        let password = getStoredPassword();
+        
+        if (!password) {
+            password = promptForPassword();
+            // Nếu người dùng không nhập password, hủy request
+            if (!password) {
+                const cancelMessage = "Cancel request cause of empty password.";
+                showMessage("Error", cancelMessage);
+                return Promise.reject(new axios.Cancel(cancelMessage));
+            }
+        }
+        
+        // Thêm password vào header của request
+        config.headers['X-Password'] = password;
+        return config;
+    },
+    error => Promise.reject(error)
+);
+
+axios.interceptors.response.use(
+    response => response, // Trả về response nếu thành công
+    async error => {
+        const originalRequest = error.config;
+        // Nếu lỗi là 403 (Forbidden) và chưa thử lại
+        if (error.response && error.response.status === 403 && !originalRequest._retry) {
+            originalRequest._retry = true; // Đánh dấu là đã thử lại
+            
+            clearPassword(); // Xóa password cũ không hợp lệ
+            alert("Password is incorrect or has expired. Please enter again.");
+
+            // Yêu cầu password mới và thử lại request ban đầu
+            const newPassword = promptForPassword();
+            if (newPassword) {
+                originalRequest.headers['X-Password'] = newPassword;
+                return axios(originalRequest);
+            }
+        }
+        // Đối với các lỗi khác, trả về lỗi đó
+        return Promise.reject(error);
+    }
+);
+
+axios.interceptors.response.use(
+    response => response, // Trả về response nếu thành công
+    async error => {
+        const originalRequest = error.config;
+        // Nếu lỗi là 403 (Forbidden) và chưa thử lại
+        if (error.response && error.response.status === 403 && !originalRequest._retry) {
+            originalRequest._retry = true; // Đánh dấu là đã thử lại
+            
+            clearPassword(); // Xóa password cũ không hợp lệ
+            alert("Password is incorrect or has expired. Please enter again.");
+
+            // Yêu cầu password mới và thử lại request ban đầu
+            const newPassword = promptForPassword();
+            if (newPassword) {
+                originalRequest.data.password = newPassword;
+                return axios(originalRequest);
+            }
+        }
+        // Đối với các lỗi khác, trả về lỗi đó
+        return Promise.reject(error);
+    }
+);
+
+
+// --- Global State ---
+// ...existing code...
+
 // --- Global State ---
 let templateUpdateInterval = null;
 
@@ -112,7 +199,13 @@ const handleError = (error) => {
     console.error(error);
     let message = "An unknown error occurred. Check the console for details.";
 
-    if (error.code === 'ERR_NETWORK') {
+    if (error.response && error.response.status === 403) {
+        clearPassword(); // Xóa mật khẩu cũ không hợp lệ
+        alert("Password is incorrect or has expired. Please enter again.");
+        promptForPassword(); // Yêu cầu người dùng nhập mật khẩu mới
+        // Thông báo cho người dùng rằng họ cần thử lại
+        message = "Password has been updated. Please try your last action again.";
+    } else if (error.code === 'ERR_NETWORK') {
         message = "Could not connect to the server. Please ensure the bot is running and accessible.";
     } else if (error.response && error.response.data && error.response.data.error) {
         const errMsg = error.response.data.error;

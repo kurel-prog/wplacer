@@ -1,3 +1,5 @@
+import dotenv from 'dotenv';
+dotenv.config();
 import { existsSync, readFileSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import path from "node:path";
 import express from "express";
@@ -808,8 +810,28 @@ app.use(cors());
 app.use(express.static("public"));
 app.use(express.json({ limit: Infinity }));
 
+app.use((req, res, next) => {
+    const timestamp = new Date().toLocaleString();
+    console.log(`[${timestamp}] [REQUEST] ${req.method} ${req.originalUrl}`);
+    next(); // Chuyển tiếp request đến handler tiếp theo
+});
+
 // --- Autostartup Templates Array ---
 const autostartedTemplates = [];
+
+const privatePassword = process.env.PRIVATE_PASSWORD || "_pwd_001";
+
+const authenticateMiddleware = (req, res, next) => {
+    // Express tự động chuyển đổi tên header thành chữ thường
+    const password = req.headers['x-password'];
+
+    if (password && password === privatePassword) {
+        next(); // Mật khẩu đúng, cho phép request tiếp tục
+    } else {
+        // Mật khẩu sai hoặc thiếu, trả về lỗi 403 Forbidden
+        res.status(403).json({ error: "Forbidden - Invalid Password" });
+    }
+};
 
 // --- API Endpoints ---
 app.get("/token-needed", (req, res) => {
@@ -823,7 +845,7 @@ app.post("/t", (req, res) => {
     res.sendStatus(200);
 });
 
-app.get("/users", (_, res) => res.json(users));
+app.get("/users", authenticateMiddleware, (_, res) => res.json(users));
 app.post("/user", async (req, res) => {
     if (!req.body.cookies || !req.body.cookies.j) return res.sendStatus(400);
     const wplacer = new WPlacer();
@@ -838,7 +860,7 @@ app.post("/user", async (req, res) => {
     }
 });
 
-app.delete("/user/:id", async (req, res) => {
+app.delete("/user/:id", authenticateMiddleware, async (req, res) => {
     const userIdToDelete = req.params.id;
     if (!userIdToDelete || !users[userIdToDelete]) return res.sendStatus(400);
 
@@ -870,7 +892,7 @@ app.delete("/user/:id", async (req, res) => {
     res.sendStatus(200);
 });
 
-app.get("/user/status/:id", async (req, res) => {
+app.get("/user/status/:id", authenticateMiddleware, async (req, res) => {
     const { id } = req.params;
     if (!users[id] || activeBrowserUsers.has(id)) return res.sendStatus(409);
     activeBrowserUsers.add(id);
@@ -886,7 +908,7 @@ app.get("/user/status/:id", async (req, res) => {
     }
 });
 
-app.post("/users/status", async (req, res) => {
+app.post("/users/status", authenticateMiddleware, async (req, res) => {
     const userIds = Object.keys(users);
     const results = {};
     const concurrencyLimit = 5; // Number of checks to run in parallel
@@ -923,7 +945,7 @@ app.post("/users/status", async (req, res) => {
     res.json(results);
 });
 
-app.get("/templates", (_, res) => {
+app.get("/templates", authenticateMiddleware, (_, res) => {
     const sanitizedTemplates = {};
     for (const id in templates) {
         const t = templates[id];
@@ -945,7 +967,7 @@ app.get("/templates", (_, res) => {
     res.json(sanitizedTemplates);
 });
 
-app.post("/template", async (req, res) => {
+app.post("/template", authenticateMiddleware, async (req, res) => {
     const { templateName, template, coords, userIds, canBuyCharges, canBuyMaxCharges, antiGriefMode, enableAutostart } = req.body;
     if (!templateName || !template || !coords || !userIds || !userIds.length) return res.sendStatus(400);
     if (Object.values(templates).some(t => t.name === templateName)) {
@@ -957,7 +979,7 @@ app.post("/template", async (req, res) => {
     res.status(200).json({ id: templateId });
 });
 
-app.delete("/template/:id", async (req, res) => {
+app.delete("/template/:id", authenticateMiddleware, async (req, res) => {
     const { id } = req.params;
     if (!id || !templates[id] || templates[id].running) return res.sendStatus(400);
     delete templates[id];
@@ -965,7 +987,7 @@ app.delete("/template/:id", async (req, res) => {
     res.sendStatus(200);
 });
 
-app.put("/template/edit/:id", async (req, res) => {
+app.put("/template/edit/:id", authenticateMiddleware, async (req, res) => {
     const { id } = req.params;
     if (!templates[id]) return res.sendStatus(404);
     const manager = templates[id];
@@ -988,7 +1010,7 @@ app.put("/template/edit/:id", async (req, res) => {
     res.sendStatus(200);
 });
 
-app.put("/template/:id", async (req, res) => {
+app.put("/template/:id", authenticateMiddleware, async (req, res) => {
     const { id } = req.params;
     if (!id || !templates[id]) return res.sendStatus(400);
     const manager = templates[id];
@@ -1000,11 +1022,11 @@ app.put("/template/:id", async (req, res) => {
     res.sendStatus(200);
 });
 
-app.get('/settings', (_, res) => {
+app.get('/settings', authenticateMiddleware, (_, res) => {
     res.json({ ...currentSettings, proxyCount: loadedProxies.length });
 });
 
-app.put('/settings', (req, res) => {
+app.put('/settings', authenticateMiddleware, (req, res) => {
     const oldSettings = { ...currentSettings };
     currentSettings = { ...currentSettings, ...req.body };
     saveSettings();
@@ -1016,12 +1038,12 @@ app.put('/settings', (req, res) => {
     res.sendStatus(200);
 });
 
-app.post('/reload-proxies', (req, res) => {
+app.post('/reload-proxies', authenticateMiddleware, (req, res) => {
     loadProxies();
     res.status(200).json({ success: true, count: loadedProxies.length });
 });
 
-app.get("/canvas", async (req, res) => {
+app.get("/canvas", authenticateMiddleware, async (req, res) => {
     const { tx, ty } = req.query;
     if (isNaN(parseInt(tx)) || isNaN(parseInt(ty))) return res.sendStatus(400);
     try {
